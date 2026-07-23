@@ -11,25 +11,25 @@
         "name": "NTK",
         "packageName": "eu.kanade.tachiyomi.extension.ko.ntk",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntk-v1.4.4-release.apk",
+          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntk-v1.4.5-release.apk",
           "iconUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/icon/eu.kanade.tachiyomi.extension.ko.ntk.png"
         },
         "extensionLib": "1.4",
-        "versionCode": "4",
-        "versionName": "1.4.4",
+        "versionCode": "5",
+        "versionName": "1.4.5",
         "contentWarning": "CONTENT_WARNING_NSFW",
         "sources": [
           {
             "id": "50660466465629892",
             "name": "NTK Manga",
             "language": "ko",
-            "homeUrl": "https://sbxh4.com/manhwa"
+            "homeUrl": "https://sbxh9.com/manhwa"
           },
           {
             "id": "8502946974566317875",
             "name": "NTK Webtoon",
             "language": "ko",
-            "homeUrl": "https://sbxh4.com/ing"
+            "homeUrl": "https://sbxh9.com/ing"
           }
         ]
       }
