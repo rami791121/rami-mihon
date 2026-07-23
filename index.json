@@ -11,12 +11,12 @@
         "name": "Newtoki White Rabbit",
         "packageName": "eu.kanade.tachiyomi.extension.ko.ntk",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntk-v1.4.15-release.apk",
+          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntk-v1.4.16-release.apk",
           "iconUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/icon/eu.kanade.tachiyomi.extension.ko.ntk.png"
         },
         "extensionLib": "1.4",
-        "versionCode": "15",
-        "versionName": "1.4.15",
+        "versionCode": "16",
+        "versionName": "1.4.16",
         "contentWarning": "CONTENT_WARNING_NSFW",
         "sources": [
           {
@@ -37,12 +37,12 @@
         "name": "SBXH Red Rabbit",
         "packageName": "eu.kanade.tachiyomi.extension.ko.ntksbxh",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntksbxh-v1.4.3-release.apk",
+          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntksbxh-v1.4.4-release.apk",
           "iconUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/icon/eu.kanade.tachiyomi.extension.ko.ntksbxh.png"
         },
         "extensionLib": "1.4",
-        "versionCode": "3",
-        "versionName": "1.4.3",
+        "versionCode": "4",
+        "versionName": "1.4.4",
         "contentWarning": "CONTENT_WARNING_NSFW",
         "sources": [
           {
@@ -63,12 +63,12 @@
         "name": "Toki Blue Rabbit",
         "packageName": "eu.kanade.tachiyomi.extension.ko.ntktoki",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntktoki-v1.4.20-release.apk",
+          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntktoki-v1.4.21-release.apk",
           "iconUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/icon/eu.kanade.tachiyomi.extension.ko.ntktoki.png"
         },
         "extensionLib": "1.4",
-        "versionCode": "20",
-        "versionName": "1.4.20",
+        "versionCode": "21",
+        "versionName": "1.4.21",
         "contentWarning": "CONTENT_WARNING_NSFW",
         "sources": [
           {
