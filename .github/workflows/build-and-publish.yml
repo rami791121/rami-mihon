@@ -97,6 +97,18 @@ jobs:
             echo "Inspector did not produce exactly three extension entries"
             exit 1
           }
+          EXPECTED_PACKAGES='["eu.kanade.tachiyomi.extension.ko.ntk","eu.kanade.tachiyomi.extension.ko.ntksbxh","eu.kanade.tachiyomi.extension.ko.ntktoki"]'
+          ACTUAL_PACKAGES="$(jq -c '[.[].pkg] | sort' repo/index.min.json)"
+          test "$ACTUAL_PACKAGES" = "$EXPECTED_PACKAGES" || {
+            echo "Inspector produced unexpected extension packages"
+            exit 1
+          }
+          EXPECTED_SOURCE_IDS='["2301875025835268751","50660466465629892","7112614124391598190","7631033431376211223","8173080177611515968","8502946974566317875"]'
+          ACTUAL_SOURCE_IDS="$(jq -c '[.[].sources[].id] | sort' repo/index.min.json)"
+          test "$ACTUAL_SOURCE_IDS" = "$EXPECTED_SOURCE_IDS" || {
+            echo "Inspector produced unexpected source IDs"
+            exit 1
+          }
           test "$(find repo/icon -maxdepth 1 -name '*.png' -type f | wc -l)" -eq 3 || {
             echo "Inspector did not produce exactly three icons"
             exit 1

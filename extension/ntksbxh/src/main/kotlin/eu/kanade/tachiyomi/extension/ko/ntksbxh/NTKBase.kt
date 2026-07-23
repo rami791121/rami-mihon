@@ -187,7 +187,11 @@ abstract class NTKBase(
                         if (!preloadDone) {
                             preloadDone = true
                             view.postDelayed(
-                                { if (finalPayload == null) view.loadUrl(chapterUrl) },
+                                {
+                                    if (finalPayload == null) {
+                                        view.loadUrl(resolveSiteUrl(chapterUrl))
+                                    }
+                                },
                                 3_000L,
                             )
                         } else {
@@ -197,7 +201,11 @@ abstract class NTKBase(
                     }
                 }
 
-                if (attempt == 1) webView.loadUrl(rootUrl) else webView.loadUrl(chapterUrl)
+                if (attempt == 1) {
+                    webView.loadUrl(rootUrl)
+                } else {
+                    webView.loadUrl(resolveSiteUrl(chapterUrl))
+                }
             }
 
             latch.await(20, TimeUnit.SECONDS)
