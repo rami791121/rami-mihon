@@ -259,6 +259,28 @@ abstract class NTKBase(
         val urls: List<String>,
     )
 
+    private fun ByteArray.detectImageMediaType(): String? = when {
+        size >= 3 &&
+            this[0] == 0xFF.toByte() &&
+            this[1] == 0xD8.toByte() &&
+            this[2] == 0xFF.toByte() -> "image/jpeg"
+        size >= 8 &&
+            this[0] == 0x89.toByte() &&
+            this[1] == 0x50.toByte() &&
+            this[2] == 0x4E.toByte() &&
+            this[3] == 0x47.toByte() &&
+            this[4] == 0x0D.toByte() &&
+            this[5] == 0x0A.toByte() &&
+            this[6] == 0x1A.toByte() &&
+            this[7] == 0x0A.toByte() -> "image/png"
+        size >= 6 && String(this, 0, 6, Charsets.US_ASCII) in setOf("GIF87a", "GIF89a") -> "image/gif"
+        size >= 12 &&
+            String(this, 0, 4, Charsets.US_ASCII) == "RIFF" &&
+            String(this, 8, 4, Charsets.US_ASCII) == "WEBP" -> "image/webp"
+        size >= 2 && this[0] == 0x42.toByte() && this[1] == 0x4D.toByte() -> "image/bmp"
+        else -> null
+    }
+
     private val imageRetryInterceptor = Interceptor { chain ->
         val request = chain.request()
         val candidates = request.tag(ImageCandidates::class.java)?.urls
@@ -292,16 +314,16 @@ abstract class NTKBase(
                     continue
                 }
 
-                val mediaType = response.body.contentType()
-                val mediaTypeText = mediaType?.toString().orEmpty()
                 val bytes = response.body.bytes()
-                if (bytes.isEmpty() || mediaTypeText.startsWith("text/") || "json" in mediaTypeText) {
+                val mediaType = bytes.detectImageMediaType()?.toMediaType()
+                if (mediaType == null) {
                     response.close()
                     lastFailure = IOException("Invalid image response from ${request.url.host}")
                     continue
                 }
 
                 return@Interceptor response.newBuilder()
+                    .header("Content-Type", mediaType.toString())
                     .body(bytes.toResponseBody(mediaType))
                     .build()
             } catch (error: IOException) {
