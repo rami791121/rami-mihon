@@ -23,7 +23,8 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -33,7 +34,6 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.IOException
-import java.net.Inet4Address
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
@@ -58,10 +58,16 @@ abstract class NTKBase(
 
     protected val rootUrl: String
         get() {
-            if (preferences.getInt(PREF_DOMAIN_MIGRATION_KEY, 0) < 1) {
+            if (preferences.getInt(PREF_DOMAIN_MIGRATION_KEY, 0) < DOMAIN_MIGRATION_VERSION) {
+                val stored = preferences.getString(PREF_DOMAIN_KEY, null)
+                val migrated = if (stored.isNullOrBlank() || stored == LEGACY_DOMAIN_DEFAULT) {
+                    PREF_DOMAIN_DEFAULT
+                } else {
+                    stored
+                }
                 preferences.edit()
-                    .putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
-                    .putInt(PREF_DOMAIN_MIGRATION_KEY, 1)
+                    .putString(PREF_DOMAIN_KEY, migrated)
+                    .putInt(PREF_DOMAIN_MIGRATION_KEY, DOMAIN_MIGRATION_VERSION)
                     .apply()
             }
             val stored = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
@@ -72,14 +78,46 @@ abstract class NTKBase(
             return "https://sbxh$domainNumber.com"
         }
 
+    private fun resolveSiteUrl(rawUrl: String): String {
+        val absoluteUrl = rawUrl.toHttpUrlOrNull()
+        if (absoluteUrl != null && !isSiteHost(absoluteUrl.host)) return absoluteUrl.toString()
+
+        val relativeUrl = if (absoluteUrl != null) {
+            buildString {
+                append(absoluteUrl.encodedPath)
+                absoluteUrl.encodedQuery?.let { append('?').append(it) }
+                absoluteUrl.encodedFragment?.let { append('#').append(it) }
+            }
+        } else {
+            rawUrl
+        }
+
+        return rootUrl.toHttpUrl().resolve(relativeUrl)?.toString()
+            ?: throw IllegalArgumentException("Invalid NTK URL: $rawUrl")
+    }
+
+    private fun isSiteHost(host: String): Boolean = SITE_HOST_REGEX.matches(host)
+
+    private fun updateDomainFromUrl(url: String) {
+        val host = url.toHttpUrlOrNull()?.host ?: return
+        val newDomainNumber = SITE_HOST_REGEX.matchEntire(host)?.groupValues?.get(1) ?: return
+        val currentDomainNumber = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
+        if (newDomainNumber != currentDomainNumber) {
+            preferences.edit().putString(PREF_DOMAIN_KEY, newDomainNumber).apply()
+        }
+    }
+
     protected open val webViewPath: String get() = contentKind
     override val baseUrl: String get() = "$rootUrl/$webViewPath"
 
-    override fun mangaDetailsRequest(manga: SManga) = GET(rootUrl + manga.url, headers)
-    override fun chapterListRequest(manga: SManga) = GET(rootUrl + manga.url, headers)
+    override fun getMangaUrl(manga: SManga): String = resolveSiteUrl(manga.url)
+    override fun getChapterUrl(chapter: SChapter): String = resolveSiteUrl(chapter.url)
+
+    override fun mangaDetailsRequest(manga: SManga) = GET(resolveSiteUrl(manga.url), headers)
+    override fun chapterListRequest(manga: SManga) = GET(resolveSiteUrl(manga.url), headers)
 
     override fun pageListRequest(chapter: SChapter) = GET(
-        url = rootUrl + chapter.url,
+        url = resolveSiteUrl(chapter.url),
         headers = headers.newBuilder().add("X-WebView-Intercept", "true").build(),
     )
 
@@ -156,6 +194,7 @@ abstract class NTKBase(
 
                 webView.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String) {
+                        updateDomainFromUrl(url)
                         if (!preloadDone) {
                             preloadDone = true
                             view.loadUrl(chapterUrl)
@@ -164,6 +203,7 @@ abstract class NTKBase(
                     }
 
                     override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+                        updateDomainFromUrl(url)
                         if (preloadDone) {
                             view.evaluateJavascript(wiretapScript, null)
                         }
@@ -219,22 +259,13 @@ abstract class NTKBase(
         val request = chain.request()
         val response = chain.proceed(request)
 
-        val finalUrl = response.request.url.toString()
-        val matchResult = """sbxh(\d+)\.com""".toRegex().find(finalUrl)
-
-        if (matchResult != null) {
-            val newDomainNumber = matchResult.groupValues[1]
-            val currentDomainNumber = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
-            if (newDomainNumber != currentDomainNumber) {
-                preferences.edit().putString(PREF_DOMAIN_KEY, newDomainNumber).apply()
-            }
-        }
+        updateDomainFromUrl(response.request.url.toString())
         response
     }
 
     private val imageRequestInterceptor = Interceptor { chain ->
         val request = chain.request()
-        if (!request.url.host.matches(Regex("""sbxh\d+\.com"""))) {
+        if (!isSiteHost(request.url.host)) {
             val cookie = CookieManager.getInstance().getCookie(request.url.toString())
             chain.proceed(
                 request.newBuilder()
@@ -255,11 +286,10 @@ abstract class NTKBase(
         }
     }
 
-    private val retryImageInterceptor = Interceptor { chain ->
+    private val retryRequestInterceptor = Interceptor { chain ->
         val request = chain.request()
-        val isImageRequest = !request.url.host.matches(Regex("""sbxh\d+\.com"""))
         var lastError: IOException? = null
-        val attempts = if (isImageRequest) 3 else 1
+        val attempts = if (request.method == "GET") 3 else 1
 
         repeat(attempts) { attempt ->
             try {
@@ -274,17 +304,9 @@ abstract class NTKBase(
         throw lastError ?: IOException("Image request failed")
     }
 
-    private val ipv4FirstDns = Dns { hostname ->
-        Dns.SYSTEM.lookup(hostname).sortedBy { address ->
-            if (address is Inet4Address) 0 else 1
-        }
-    }
-
     override val client: OkHttpClient by lazy {
         network.cloudflareClient.newBuilder()
-            .dns(ipv4FirstDns)
-            .protocols(listOf(Protocol.HTTP_1_1))
-            .addInterceptor(retryImageInterceptor)
+            .addInterceptor(retryRequestInterceptor)
             .addInterceptor(headerCleanerInterceptor)
             .addInterceptor(domainUpdateInterceptor)
             .addInterceptor(imageRequestInterceptor)
@@ -468,8 +490,11 @@ abstract class NTKBase(
 
     companion object {
         private const val PREF_DOMAIN_KEY = "pref_domain_key"
-        private const val PREF_DOMAIN_DEFAULT = "4"
+        private val SITE_HOST_REGEX = Regex("""sbxh(\d+)\.com""")
+        private const val PREF_DOMAIN_DEFAULT = "9"
+        private const val LEGACY_DOMAIN_DEFAULT = "4"
         private const val PREF_DOMAIN_MIGRATION_KEY = "pref_domain_migration"
+        private const val DOMAIN_MIGRATION_VERSION = 2
         const val PAGE_SIZE = 49
     }
 }
