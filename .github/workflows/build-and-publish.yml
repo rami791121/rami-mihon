@@ -62,8 +62,16 @@ jobs:
       - name: Inspect APK and prepare repository metadata
         shell: bash
         run: |
-          APK="$(find upstream/src/ko/ntk/build/outputs/apk/release -name '*.apk' -type f | head -n 1)"
-          test -f "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          APK=""
+          while IFS= read -r candidate; do
+            if "$APKSIGNER" verify "$candidate" >/dev/null 2>&1; then
+              APK="$candidate"
+              break
+            fi
+          done < <(find upstream/src/ko/ntk/build/outputs/apk/release -name '*.apk' -type f)
+          test -n "$APK" || { echo "No signed release APK found"; exit 1; }
           mkdir -p upstream/repo/apk
           cp "$APK" upstream/repo/apk/
           INSPECTOR_LINK="$(curl -fsSL https://api.github.com/repos/keiyoushi/extensions-inspector/releases/latest | jq -r '.assets[] | select(.name | endswith(".jar")) | .browser_download_url' | head -n 1)"
@@ -78,8 +86,8 @@ jobs:
         run: |
           APK="$(find upstream/repo/apk -name '*.apk' -type f | head -n 1)"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          CERT_SHA="$($APKSIGNER verify --print-certs "$APK" | sed -n 's/Signer #1 certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]')"
-          test -n "$CERT_SHA"
+          CERT_SHA="$("$APKSIGNER" verify --print-certs "$APK" 2>&1 | awk -F': ' '/certificate SHA-256 digest/ { print tolower($2); exit }')"
+          [[ "$CERT_SHA" =~ ^[0-9a-f]{64}$ ]] || { echo "Unable to read APK signing certificate SHA-256"; exit 1; }
           python -m pip install --disable-pip-version-check protobuf
           python scripts/make_repo.py upstream/repo . rami791121 rami-mihon "$CERT_SHA"
 
