@@ -30,6 +30,7 @@ import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
+import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.Jsoup
@@ -37,6 +38,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.select.Elements
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Locale
@@ -246,17 +248,77 @@ abstract class NTKBase(
 
     private val imageRefererInterceptor = Interceptor { chain ->
         val request = chain.request()
-        if (isSiteHost(request.url.host)) {
+        if (isSiteHost(request.url.host) || request.header("Referer") != null) {
             chain.proceed(request)
         } else {
             chain.proceed(request.newBuilder().header("Referer", "$rootUrl/").build())
         }
     }
 
+    private data class ImageCandidates(
+        val urls: List<String>,
+    )
+
+    private val imageRetryInterceptor = Interceptor { chain ->
+        val request = chain.request()
+        val candidates = request.tag(ImageCandidates::class.java)?.urls
+            ?.filter { it.toHttpUrlOrNull() != null }
+            ?.distinct()
+            ?.take(MAX_IMAGE_CANDIDATES)
+            .orEmpty()
+
+        if (candidates.isEmpty()) return@Interceptor chain.proceed(request)
+
+        val retryPlan = buildList {
+            add(candidates.first())
+            add(candidates.first())
+            addAll(candidates.drop(1))
+            add(candidates.first())
+        }
+        var lastFailure: IOException? = null
+        var lastStatusCode: Int? = null
+
+        for ((attempt, imageUrl) in retryPlan.withIndex()) {
+            if (attempt > 0) {
+                Thread.sleep(IMAGE_RETRY_DELAY_MS * attempt.coerceAtMost(3))
+            }
+
+            var response: Response? = null
+            try {
+                response = chain.proceed(request.newBuilder().url(imageUrl).build())
+                if (!response.isSuccessful) {
+                    lastStatusCode = response.code
+                    response.close()
+                    continue
+                }
+
+                val mediaType = response.body.contentType()
+                val mediaTypeText = mediaType?.toString().orEmpty()
+                val bytes = response.body.bytes()
+                if (bytes.isEmpty() || mediaTypeText.startsWith("text/") || "json" in mediaTypeText) {
+                    response.close()
+                    lastFailure = IOException("Invalid image response from ${request.url.host}")
+                    continue
+                }
+
+                return@Interceptor response.newBuilder()
+                    .body(bytes.toResponseBody(mediaType))
+                    .build()
+            } catch (error: IOException) {
+                response?.close()
+                if (chain.call().isCanceled()) throw error
+                lastFailure = error
+            }
+        }
+
+        throw lastFailure ?: IOException("Image download failed (HTTP ${lastStatusCode ?: "unknown"})")
+    }
+
     override val client: OkHttpClient by lazy {
         network.cloudflareClient.newBuilder()
             .addInterceptor(headerCleanerInterceptor)
             .addInterceptor(domainUpdateInterceptor)
+            .addInterceptor(imageRetryInterceptor)
             .addInterceptor(imageRefererInterceptor)
             .addInterceptor(webViewInterceptor)
             .build()
@@ -523,11 +585,46 @@ abstract class NTKBase(
         val data = json.decodeFromString<PageImagesResponse>(payload)
         if (data.images.isEmpty()) throw Exception("이미지 목록을 불러오지 못했습니다. 다시 시도하세요.")
 
+        val chapterReferer = resolveSiteUrl(response.request.url.toString())
         return data.images.mapIndexed { index, image ->
-            val imageUrl = image.src.ifBlank { image.srcCandidates.lastOrNull().orEmpty() }
-            if (imageUrl.isBlank()) throw Exception("$index 페이지의 이미지 주소가 비어 있습니다.")
-            Page(index, imageUrl = imageUrl)
+            val candidates = (listOf(image.src) + image.srcCandidates)
+                .mapNotNull { rawUrl ->
+                    rawUrl.trim().takeIf(String::isNotEmpty)?.let { url ->
+                        url.toHttpUrlOrNull()?.toString()
+                            ?: rootUrl.toHttpUrl().resolve(url)?.toString()
+                    }
+                }
+                .distinct()
+                .take(MAX_IMAGE_CANDIDATES)
+            if (candidates.isEmpty()) throw Exception("$index 페이지의 이미지 주소가 비어 있습니다.")
+            Page(
+                index = index,
+                url = (listOf(chapterReferer) + candidates).joinToString(IMAGE_METADATA_SEPARATOR),
+                imageUrl = candidates.first(),
+            )
         }
+    }
+
+    override fun imageRequest(page: Page): Request {
+        val metadata = page.url.split(IMAGE_METADATA_SEPARATOR).filter(String::isNotBlank)
+        val chapterReferer = metadata.firstOrNull()?.takeIf { it.toHttpUrlOrNull() != null } ?: "$rootUrl/"
+        val candidates = (listOfNotNull(page.imageUrl) + metadata.drop(1))
+            .mapNotNull { rawUrl ->
+                rawUrl.toHttpUrlOrNull()?.toString()
+                    ?: rootUrl.toHttpUrl().resolve(rawUrl)?.toString()
+            }
+            .distinct()
+            .take(MAX_IMAGE_CANDIDATES)
+        val imageUrl = candidates.firstOrNull()
+            ?: throw IllegalArgumentException("Missing image URL for page ${page.index}")
+        val imageHeaders = headers.newBuilder()
+            .set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .set("Referer", chapterReferer)
+            .build()
+
+        return GET(imageUrl, imageHeaders).newBuilder()
+            .tag(ImageCandidates::class.java, ImageCandidates(candidates))
+            .build()
     }
 
     override fun imageUrlParse(response: Response) = throw UnsupportedOperationException()
@@ -545,6 +642,9 @@ abstract class NTKBase(
         private const val WEBVIEW_HEADER = "X-WebView-Intercept"
         private const val PREF_DOMAIN_KEY = "pref_newtoki_domain_key"
         private const val PREF_DOMAIN_DEFAULT = "1"
+        private const val IMAGE_METADATA_SEPARATOR = "\n"
+        private const val MAX_IMAGE_CANDIDATES = 4
+        private const val IMAGE_RETRY_DELAY_MS = 250L
         private val SITE_HOST_REGEX = Regex("""newtoki(\d+)\.org""")
         private val KNOWN_RABBIT_HOST_REGEX = Regex("""(?:newtoki\d+\.org|toki\d+\.com|sbxh\d+\.com)""")
         private val CHAPTER_PAGE_REGEX = Regex("""[?&](?:page|epage)=\d+""")
@@ -575,7 +675,10 @@ abstract class NTKBase(
                   images: data.images.map(function(item, index) {
                     var candidates = Array.isArray(item.srcCandidates) ? item.srcCandidates.filter(Boolean) : [];
                     var src = candidates.length ? candidates[candidates.length - 1] : item.src;
-                    return { src: src || item.src || '', page: item.page || index + 1 };
+                    var all = [src, item.src].concat(candidates).filter(Boolean).filter(function(value, position, array) {
+                      return array.indexOf(value) === position;
+                    });
+                    return { src: src || item.src || '', srcCandidates: all, page: item.page || index + 1 };
                   }).filter(function(item) { return !!item.src; })
                 };
               }
@@ -615,8 +718,22 @@ abstract class NTKBase(
                   var expected = expectedNode ? parseInt(expectedNode.getAttribute('data-viewer-image-count') || '0', 10) : 0;
                   var images = nodes.map(function(img, index) {
                     var src = img.currentSrc || img.src || '';
+                    var candidates = [src, img.src, img.getAttribute('data-src')];
+                    [img.getAttribute('srcset'), img.getAttribute('data-srcset')].filter(Boolean).forEach(function(srcset) {
+                      srcset.split(',').forEach(function(part) {
+                        var candidate = part.trim().split(/\s+/)[0];
+                        if (candidate) candidates.push(candidate);
+                      });
+                    });
+                    var fallback = String(img.getAttribute('onerror') || '').match(/(?:this\.)?src\s*=\s*['"]([^'"]+)['"]/);
+                    if (fallback) candidates.push(fallback[1]);
+                    candidates = candidates.filter(Boolean).map(function(candidate) {
+                      try { return new URL(candidate, window.location.href).href; } catch (_) { return candidate; }
+                    }).filter(function(value, position, array) {
+                      return array.indexOf(value) === position;
+                    });
                     var altMatch = String(img.alt || '').match(/\d+/);
-                    return { src: src, page: altMatch ? parseInt(altMatch[0], 10) : index + 1 };
+                    return { src: candidates[0] || src, srcCandidates: candidates, page: altMatch ? parseInt(altMatch[0], 10) : index + 1 };
                   }).filter(function(item) {
                     return item.src && item.src.indexOf('data:') !== 0 && item.src.indexOf('blob:') !== 0;
                   });
