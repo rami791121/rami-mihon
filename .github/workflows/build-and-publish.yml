@@ -83,10 +83,19 @@ jobs:
 
       - name: Build Mihon indexes
         shell: bash
+        env:
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
         run: |
           APK="$(find upstream/repo/apk -name '*.apk' -type f | head -n 1)"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          CERT_SHA="$("$APKSIGNER" verify --print-certs "$APK" 2>&1 | awk -F': ' '/certificate SHA-256 digest/ { print tolower($2); exit }')"
+          test -f "$APK"
+          keytool -exportcert \
+            -keystore upstream/signingkey.jks \
+            -storepass "$KEY_STORE_PASSWORD" \
+            -alias "$ALIAS" \
+            -file upstream/signing-cert.der
+          CERT_SHA="$(sha256sum upstream/signing-cert.der | awk '{ print $1 }')"
+          rm upstream/signing-cert.der
           [[ "$CERT_SHA" =~ ^[0-9a-f]{64}$ ]] || { echo "Unable to read APK signing certificate SHA-256"; exit 1; }
           python -m pip install --disable-pip-version-check protobuf
           python scripts/make_repo.py upstream/repo . rami791121 rami-mihon "$CERT_SHA"
