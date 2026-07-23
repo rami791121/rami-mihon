@@ -46,7 +46,8 @@ import java.util.concurrent.TimeUnit
 abstract class NTKBase(
     override val name: String,
     protected val contentKind: String,
-) : HttpSource(), ConfigurableSource {
+) : HttpSource(),
+    ConfigurableSource {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -382,12 +383,10 @@ abstract class NTKBase(
         return MangasPage(mangas, false)
     }
 
-    override fun searchMangaParse(response: Response): MangasPage {
-        return if (response.header("Content-Type").orEmpty().contains("application/json")) {
-            popularMangaParse(response)
-        } else {
-            htmlSearchParse(response)
-        }
+    override fun searchMangaParse(response: Response): MangasPage = if (response.header("Content-Type").orEmpty().contains("application/json")) {
+        popularMangaParse(response)
+    } else {
+        htmlSearchParse(response)
     }
 
     override fun mangaDetailsParse(response: Response): SManga {
