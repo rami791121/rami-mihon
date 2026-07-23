@@ -43,6 +43,7 @@ import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 
 abstract class NTKBase(
@@ -248,7 +249,7 @@ abstract class NTKBase(
 
     private val imageRefererInterceptor = Interceptor { chain ->
         val request = chain.request()
-        if (isSiteHost(request.url.host) || request.header("Referer") != null) {
+        if (isSiteHost(request.url.host)) {
             chain.proceed(request)
         } else {
             chain.proceed(request.newBuilder().header("Referer", "$rootUrl/").build())
@@ -258,6 +259,8 @@ abstract class NTKBase(
     private data class ImageCandidates(
         val urls: List<String>,
     )
+
+    private val imageDownloadSemaphore = Semaphore(1, true)
 
     private fun ByteArray.detectImageMediaType(): String? = when {
         size >= 3 &&
@@ -290,50 +293,58 @@ abstract class NTKBase(
             .orEmpty()
 
         if (candidates.isEmpty()) return@Interceptor chain.proceed(request)
-
-        val retryPlan = buildList {
-            add(candidates.first())
-            add(candidates.first())
-            addAll(candidates.drop(1))
-            add(candidates.first())
-        }
-        var lastFailure: IOException? = null
-        var lastStatusCode: Int? = null
-
-        for ((attempt, imageUrl) in retryPlan.withIndex()) {
-            if (attempt > 0) {
-                Thread.sleep(IMAGE_RETRY_DELAY_MS * attempt.coerceAtMost(3))
-            }
-
-            var response: Response? = null
-            try {
-                response = chain.proceed(request.newBuilder().url(imageUrl).build())
-                if (!response.isSuccessful) {
-                    lastStatusCode = response.code
-                    response.close()
-                    continue
-                }
-
-                val bytes = response.body.bytes()
-                val mediaType = bytes.detectImageMediaType()?.toMediaType()
-                if (mediaType == null) {
-                    response.close()
-                    lastFailure = IOException("Invalid image response from ${request.url.host}")
-                    continue
-                }
-
-                return@Interceptor response.newBuilder()
-                    .header("Content-Type", mediaType.toString())
-                    .body(bytes.toResponseBody(mediaType))
-                    .build()
-            } catch (error: IOException) {
-                response?.close()
-                if (chain.call().isCanceled()) throw error
-                lastFailure = error
-            }
+        if (!imageDownloadSemaphore.tryAcquire(IMAGE_SLOT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            throw IOException("Timed out waiting for an image download slot")
         }
 
-        throw lastFailure ?: IOException("Image download failed (HTTP ${lastStatusCode ?: "unknown"})")
+        try {
+            val retryPlan = buildList {
+                add(candidates.first())
+                add(candidates.first())
+                addAll(candidates.drop(1))
+                add(candidates.first())
+            }
+            var lastFailure: IOException? = null
+            var lastStatusCode: Int? = null
+
+            for ((attempt, imageUrl) in retryPlan.withIndex()) {
+                if (attempt > 0) {
+                    Thread.sleep(IMAGE_RETRY_DELAY_MS * attempt.coerceAtMost(3))
+                }
+
+                var response: Response? = null
+                try {
+                    response = chain.proceed(request.newBuilder().url(imageUrl).build())
+                    if (!response.isSuccessful) {
+                        lastStatusCode = response.code
+                        response.close()
+                        continue
+                    }
+
+                    val bytes = response.body.bytes()
+                    val mediaType = bytes.detectImageMediaType()?.toMediaType()
+                    if (mediaType == null) {
+                        response.close()
+                        lastFailure = IOException("Invalid image response from ${request.url.host}")
+                        continue
+                    }
+
+                    return@Interceptor response.newBuilder()
+                        .header("Content-Type", mediaType.toString())
+                        .body(bytes.toResponseBody(mediaType))
+                        .build()
+                } catch (error: IOException) {
+                    response?.close()
+                    if (chain.call().isCanceled()) throw error
+                    lastFailure = error
+                }
+            }
+
+            val detail = lastFailure?.message ?: "HTTP ${lastStatusCode ?: "unknown"}"
+            throw IOException("Rabbit image failed after ${retryPlan.size} attempts: $detail", lastFailure)
+        } finally {
+            imageDownloadSemaphore.release()
+        }
     }
 
     override val client: OkHttpClient by lazy {
@@ -343,6 +354,8 @@ abstract class NTKBase(
             .addInterceptor(imageRetryInterceptor)
             .addInterceptor(imageRefererInterceptor)
             .addInterceptor(webViewInterceptor)
+            .protocols(listOf(Protocol.HTTP_1_1))
+            .retryOnConnectionFailure(true)
             .build()
     }
 
@@ -666,7 +679,8 @@ abstract class NTKBase(
         private const val PREF_DOMAIN_DEFAULT = "1"
         private const val IMAGE_METADATA_SEPARATOR = "\n"
         private const val MAX_IMAGE_CANDIDATES = 4
-        private const val IMAGE_RETRY_DELAY_MS = 250L
+        private const val IMAGE_RETRY_DELAY_MS = 1_000L
+        private const val IMAGE_SLOT_TIMEOUT_SECONDS = 30L
         private val SITE_HOST_REGEX = Regex("""newtoki(\d+)\.org""")
         private val KNOWN_RABBIT_HOST_REGEX = Regex("""(?:newtoki\d+\.org|toki\d+\.com|sbxh\d+\.com)""")
         private val CHAPTER_PAGE_REGEX = Regex("""[?&](?:page|epage)=\d+""")

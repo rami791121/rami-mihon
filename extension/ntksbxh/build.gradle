@@ -1,7 +1,7 @@
 ext {
     extName = 'SBXH Red Rabbit'
     extClass = '.NTKFactory'
-    extVersionCode = 4
+    extVersionCode = 5
     isNsfw = true
 }
 
