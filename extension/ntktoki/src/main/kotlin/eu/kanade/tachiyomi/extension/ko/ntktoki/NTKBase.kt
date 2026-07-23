@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.extension.ko.ntk
+package eu.kanade.tachiyomi.extension.ko.ntktoki
 
 import android.annotation.SuppressLint
 import android.app.Application
@@ -66,11 +66,11 @@ abstract class NTKBase(
             if (domainNumber != stored) {
                 preferences.edit().putString(PREF_DOMAIN_KEY, domainNumber).apply()
             }
-            return "https://newtoki$domainNumber.org"
+            return "https://toki$domainNumber.com"
         }
 
     protected open val webViewPath: String get() = contentKind
-    override val baseUrl: String get() = "$rootUrl/$webViewPath"
+    override val baseUrl: String get() = rootUrl
 
     private fun resolveSiteUrl(rawUrl: String): String {
         val absoluteUrl = rawUrl.toHttpUrlOrNull()
@@ -89,7 +89,7 @@ abstract class NTKBase(
         }
 
         return rootUrl.toHttpUrl().resolve(relativeUrl)?.toString()
-            ?: throw IllegalArgumentException("Invalid Newtoki URL: $rawUrl")
+            ?: throw IllegalArgumentException("Invalid Toki URL: $rawUrl")
     }
 
     private fun isSiteHost(host: String): Boolean = SITE_HOST_REGEX.matches(host)
@@ -528,7 +528,7 @@ abstract class NTKBase(
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         EditTextPreference(screen.context).apply {
             key = PREF_DOMAIN_KEY
-            title = "도메인 번호 (newtoki#.org)"
+            title = "도메인 번호 (toki#.com)"
             summary = "현재 도메인 번호: ${preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)}\n숫자만 입력하세요 (예: 1, 2, 300)"
             setDefaultValue(PREF_DOMAIN_DEFAULT)
         }.also(screen::addPreference)
@@ -536,9 +536,9 @@ abstract class NTKBase(
 
     companion object {
         private const val WEBVIEW_HEADER = "X-WebView-Intercept"
-        private const val PREF_DOMAIN_KEY = "pref_newtoki_domain_key"
-        private const val PREF_DOMAIN_DEFAULT = "1"
-        private val SITE_HOST_REGEX = Regex("""newtoki(\d+)\.org""")
+        private const val PREF_DOMAIN_KEY = "pref_toki_domain_key"
+        private const val PREF_DOMAIN_DEFAULT = "31"
+        private val SITE_HOST_REGEX = Regex("""toki(\d+)\.com""")
         private val KNOWN_RABBIT_HOST_REGEX = Regex("""(?:newtoki\d+\.org|toki\d+\.com|sbxh\d+\.com)""")
         private val CHAPTER_PAGE_REGEX = Regex("""[?&](?:page|epage)=\d+""")
         private val EPAGE_REGEX = Regex("\"href\":\"([^\"]*[?&]epage=\\d+[^\"]*)\"")

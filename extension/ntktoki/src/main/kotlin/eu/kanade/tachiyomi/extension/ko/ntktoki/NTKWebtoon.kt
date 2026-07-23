@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.extension.ko.ntk
+package eu.kanade.tachiyomi.extension.ko.ntktoki
 
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.Filter
@@ -9,7 +9,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
-class NTKWebtoon : NTKBase("NTK Webtoon", "webtoon") {
+class NTKWebtoon : NTKBase("Toki Webtoon", "webtoon") {
     override val webViewPath = "ing"
 
     override fun popularMangaRequest(page: Int): Request {
@@ -37,8 +37,8 @@ class NTKWebtoon : NTKBase("NTK Webtoon", "webtoon") {
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         if (query.isNotEmpty()) {
-            val url = "$rootUrl/webtoon".toHttpUrl().newBuilder().apply {
-                addQueryParameter("stx", query)
+            val url = "$rootUrl/search".toHttpUrl().newBuilder().apply {
+                addQueryParameter("q", query)
                 addQueryParameter("kind", "webtoon")
             }.build()
             return GET(url, headers)

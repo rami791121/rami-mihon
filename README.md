@@ -1,8 +1,15 @@
-# Rami Mihon personal NTK repository
+# Rami Mihon personal rabbit repository
 
 This starter is based on the public `rustedimac/extensions-source` branch
-`add-ko-ntk`. It builds only the Korean NTK extension and publishes the APK and
-Mihon indexes to this repository.
+`add-ko-ntk`. It builds three independently configurable Korean extensions and
+publishes their APKs and Mihon indexes to this repository:
+
+- White Rabbit — Newtoki (`newtoki#.org`)
+- Blue Rabbit — Toki (`toki#.com`)
+- Red Rabbit — SBXH (`sbxh#.com`)
+
+Blacktoon is intentionally not included. The original NTK package and source
+IDs belong to White Rabbit so existing NTK library entries remain connected.
 
 The workflow is manual: **Actions → Build and publish personal NTK extension →
 Run workflow**.

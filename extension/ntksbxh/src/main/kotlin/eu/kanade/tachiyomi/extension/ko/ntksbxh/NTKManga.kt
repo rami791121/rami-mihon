@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.extension.ko.ntk
+package eu.kanade.tachiyomi.extension.ko.ntksbxh
 
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.Filter
@@ -7,7 +7,7 @@ import keiyoushi.utils.firstInstanceOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 
-class NTKManga : NTKBase("NTK Manga", "manhwa") {
+class NTKManga : NTKBase("SBXH Manga", "manhwa") {
 
     override fun popularMangaRequest(page: Int): Request {
         val url = "$rootUrl/api/manhwa-list".toHttpUrl().newBuilder().apply {
@@ -24,8 +24,8 @@ class NTKManga : NTKBase("NTK Manga", "manhwa") {
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         if (query.isNotEmpty()) {
-            val url = "$rootUrl/manhwa".toHttpUrl().newBuilder().apply {
-                addQueryParameter("stx", query)
+            val url = "$rootUrl/search".toHttpUrl().newBuilder().apply {
+                addQueryParameter("q", query)
                 addQueryParameter("kind", "manhwa")
             }.build()
             return GET(url, headers)

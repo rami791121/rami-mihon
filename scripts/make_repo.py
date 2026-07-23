@@ -41,7 +41,7 @@ def extension_lib(version: str) -> str:
 
 base = f"https://raw.githubusercontent.com/{owner}/{repo}/refs/heads/main"
 index = index_pb2.Index(
-    name="Rami NTK",
+    name="Rami Rabbits",
     badgeLabel="RAMI",
     signingKey=fingerprint,
     contact=index_pb2.Contact(website=f"https://github.com/{owner}/{repo}"),
@@ -93,7 +93,7 @@ with (output / "repo.json").open("w", encoding="utf-8") as handle:
     json.dump(
         {
             "meta": {
-                "name": "Rami NTK",
+                "name": "Rami Rabbits",
                 "website": f"https://github.com/{owner}/{repo}",
                 "signingKeyFingerprint": fingerprint,
             }
@@ -104,7 +104,7 @@ with (output / "repo.json").open("w", encoding="utf-8") as handle:
     )
 
 with (output / "index.html").open("w", encoding="utf-8") as handle:
-    handle.write("<!doctype html><meta charset='utf-8'><title>Rami NTK</title><pre>\n")
+    handle.write("<!doctype html><meta charset='utf-8'><title>Rami Rabbits</title><pre>\n")
     for extension in extensions:
         apk = "apk/" + html.escape(extension["apk"])
         name = html.escape(extension["name"])
