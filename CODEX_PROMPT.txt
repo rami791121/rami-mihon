@@ -1,0 +1,33 @@
+현재 프로젝트 폴더는 내 개인 Mihon NTK 저장소용 준비 파일이다.
+대상 GitHub 저장소는 https://github.com/rami791121/rami-mihon 이다.
+
+내가 코드를 직접 만지지 않아도 되도록 아래 작업을 끝까지 수행해라.
+
+1. 현재 폴더의 파일과 대상 저장소의 main 브랜치를 비교한다.
+2. extension/ntk가 rustedimac/extensions-source의 add-ko-ntk 브랜치를 기반으로 한
+   NTK 소스인지 확인한다.
+3. NTKBase.kt의 개인 수정이 컴파일되는지 검토한다. 목적은 웹뷰에서는 열리지만
+   Mihon 리더에서 이미지 요청이 Connection reset/Failed to connect로 실패하는 경우를
+   줄이는 것이다. 이미지 요청에 Referer, Origin, WebView 쿠키를 전달하고 IPv4 우선,
+   HTTP/1.1, 제한적 재시도를 적용하되 사이트 우회나 광고 확인 기능은 추가하지 않는다.
+4. .github/workflows/build-and-publish.yml과 scripts/make_repo.py를 검토해 다음이 되게 한다.
+   - NTK APK 빌드
+   - 개인 서명키로 서명
+   - apk, icon, index.pb, index.json, index.min.json, index.html, repo.json 생성
+   - 결과를 rami791121/rami-mihon main 브랜치에 커밋하고 푸시
+5. 개인 서명키를 새로 한 번만 생성한다. 서명키 파일은 절대 공개 저장소에 커밋하지 않는다.
+   GitHub CLI 로그인이 필요하면 내게 로그인/승인 요청을 띄운다.
+6. GitHub Actions 저장소 비밀값 SIGNING_KEY, ALIAS, KEY_STORE_PASSWORD,
+   KEY_PASSWORD를 설정한다. SIGNING_KEY에는 keystore 파일의 base64 값을 넣는다.
+7. 현재 폴더 내용을 대상 저장소 main 브랜치에 반영하고 커밋·푸시한다.
+8. GitHub Actions의 "Build and publish personal NTK extension"을 실행한다.
+9. 실패하면 Actions 로그를 읽고 성공할 때까지 코드나 워크플로를 수정한 뒤 다시 실행한다.
+10. 성공 후 아래 주소가 실제로 열리고 index.pb가 내려받아지는지 확인한다.
+    https://raw.githubusercontent.com/rami791121/rami-mihon/main/index.pb
+11. 최종 답변에는 내가 Mihon에서 누를 메뉴와 기존 NTK 삭제 필요 여부만 쉬운 말로 알려준다.
+
+중요:
+- 사용자에게 터미널 명령을 직접 입력하라고 시키지 말고 네가 실행한다.
+- private signing key, 비밀번호, GitHub 토큰을 답변이나 로그에 출력하지 않는다.
+- 기존 Mihon 앱이나 서재 데이터를 삭제하지 않는다.
+- 빌드 성공과 raw index.pb 접근 확인 전에는 완료라고 하지 않는다.

@@ -1,0 +1,16 @@
+NTK source
+Repository: https://github.com/rustedimac/extensions-source
+Branch: add-ko-ntk
+Commit: 674cf4ee82582dc50d3d0c88c491e609f2dba6ef
+Commit date: 2026-06-02T00:33:53-04:00
+
+Reference distribution repository
+Repository: https://github.com/rustedimac/NTK-Mihon-Extension
+Commit inspected: 73806913575d31083ae84971a25020432a1851b4
+Commit date: 2026-06-04T22:05:19Z
+
+Target personal repository
+Repository: https://github.com/rami791121/rami-mihon
+Initial commit inspected: ff146da81fab17966c1ddebe238845f8d5b64668
+
+Checked and packaged on: 2026-07-23 (Asia/Seoul)

@@ -1,0 +1,96 @@
+name: Build and publish personal NTK extension
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out personal repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Check out NTK source skeleton
+        uses: actions/checkout@v4
+        with:
+          repository: rustedimac/extensions-source
+          ref: add-ko-ntk
+          path: upstream
+          fetch-depth: 1
+
+      - name: Apply personal NTK source
+        run: |
+          rm -rf upstream/src/ko/ntk
+          cp -R extension/ntk upstream/src/ko/ntk
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare private signing key
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          test -n "$SIGNING_KEY" || { echo "Missing SIGNING_KEY secret"; exit 1; }
+          test -n "$ALIAS" || { echo "Missing ALIAS secret"; exit 1; }
+          test -n "$KEY_STORE_PASSWORD" || { echo "Missing KEY_STORE_PASSWORD secret"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "Missing KEY_PASSWORD secret"; exit 1; }
+          printf '%s' "$SIGNING_KEY" | base64 -d > upstream/signingkey.jks
+
+      - name: Build signed NTK APK
+        env:
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        working-directory: upstream
+        run: ./gradlew :src:ko:ntk:assembleRelease
+
+      - name: Inspect APK and prepare repository metadata
+        shell: bash
+        run: |
+          APK="$(find upstream/src/ko/ntk/build/outputs/apk/release -name '*.apk' -type f | head -n 1)"
+          test -f "$APK"
+          mkdir -p upstream/repo/apk
+          cp "$APK" upstream/repo/apk/
+          INSPECTOR_LINK="$(curl -fsSL https://api.github.com/repos/keiyoushi/extensions-inspector/releases/latest | jq -r '.assets[] | select(.name | endswith(".jar")) | .browser_download_url' | head -n 1)"
+          test -n "$INSPECTOR_LINK"
+          curl -fsSL "$INSPECTOR_LINK" -o upstream/Inspector.jar
+          cd upstream
+          java -jar Inspector.jar repo/apk output.json tmp
+          python .github/scripts/create-repo.py
+
+      - name: Build Mihon indexes
+        shell: bash
+        run: |
+          APK="$(find upstream/repo/apk -name '*.apk' -type f | head -n 1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          CERT_SHA="$($APKSIGNER verify --print-certs "$APK" | sed -n 's/Signer #1 certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]')"
+          test -n "$CERT_SHA"
+          python -m pip install --disable-pip-version-check protobuf
+          python scripts/make_repo.py upstream/repo . rami791121 rami-mihon "$CERT_SHA"
+
+      - name: Commit generated APK and indexes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apk icon index.pb index.json index.min.json index.html repo.json
+          if git diff --cached --quiet; then
+            echo "Nothing changed"
+          else
+            git commit -m "Build personal NTK extension"
+            git push origin HEAD:main
+          fi
