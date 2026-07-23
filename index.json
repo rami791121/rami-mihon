@@ -1,0 +1,38 @@
+{
+  "name": "Rami NTK",
+  "badgeLabel": "RAMI",
+  "signingKey": "dfabfcd22514e8162c6037d7b08a5354e99dbc9af3c130ffc459a4b22584b71d",
+  "contact": {
+    "website": "https://github.com/rami791121/rami-mihon"
+  },
+  "extensionList": {
+    "extensions": [
+      {
+        "name": "NTK",
+        "packageName": "eu.kanade.tachiyomi.extension.ko.ntk",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntk-v1.4.4-release.apk",
+          "iconUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/icon/eu.kanade.tachiyomi.extension.ko.ntk.png"
+        },
+        "extensionLib": "1.4",
+        "versionCode": "4",
+        "versionName": "1.4.4",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "50660466465629892",
+            "name": "NTK Manga",
+            "language": "ko",
+            "homeUrl": "https://sbxh4.com/manhwa"
+          },
+          {
+            "id": "8502946974566317875",
+            "name": "NTK Webtoon",
+            "language": "ko",
+            "homeUrl": "https://sbxh4.com/ing"
+          }
+        ]
+      }
+    ]
+  }
+}
