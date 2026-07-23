@@ -1,5 +1,5 @@
 {
-  "name": "Rami NTK",
+  "name": "Rami Rabbits",
   "badgeLabel": "RAMI",
   "signingKey": "dfabfcd22514e8162c6037d7b08a5354e99dbc9af3c130ffc459a4b22584b71d",
   "contact": {
@@ -8,28 +8,80 @@
   "extensionList": {
     "extensions": [
       {
-        "name": "NTK",
+        "name": "Newtoki White Rabbit",
         "packageName": "eu.kanade.tachiyomi.extension.ko.ntk",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntk-v1.4.5-release.apk",
+          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntk-v1.4.13-release.apk",
           "iconUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/icon/eu.kanade.tachiyomi.extension.ko.ntk.png"
         },
         "extensionLib": "1.4",
-        "versionCode": "5",
-        "versionName": "1.4.5",
+        "versionCode": "13",
+        "versionName": "1.4.13",
         "contentWarning": "CONTENT_WARNING_NSFW",
         "sources": [
           {
             "id": "50660466465629892",
             "name": "NTK Manga",
             "language": "ko",
-            "homeUrl": "https://sbxh9.com/manhwa"
+            "homeUrl": "https://newtoki1.org/manhwa"
           },
           {
             "id": "8502946974566317875",
             "name": "NTK Webtoon",
             "language": "ko",
-            "homeUrl": "https://sbxh9.com/ing"
+            "homeUrl": "https://newtoki1.org/ing"
+          }
+        ]
+      },
+      {
+        "name": "SBXH Red Rabbit",
+        "packageName": "eu.kanade.tachiyomi.extension.ko.ntksbxh",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntksbxh-v1.4.1-release.apk",
+          "iconUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/icon/eu.kanade.tachiyomi.extension.ko.ntksbxh.png"
+        },
+        "extensionLib": "1.4",
+        "versionCode": "1",
+        "versionName": "1.4.1",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "7631033431376211223",
+            "name": "SBXH Manga",
+            "language": "ko",
+            "homeUrl": "https://sbxh9.com"
+          },
+          {
+            "id": "8173080177611515968",
+            "name": "SBXH Webtoon",
+            "language": "ko",
+            "homeUrl": "https://sbxh9.com"
+          }
+        ]
+      },
+      {
+        "name": "Toki Blue Rabbit",
+        "packageName": "eu.kanade.tachiyomi.extension.ko.ntktoki",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/apk/tachiyomi-ko.ntktoki-v1.4.18-release.apk",
+          "iconUrl": "https://raw.githubusercontent.com/rami791121/rami-mihon/refs/heads/main/icon/eu.kanade.tachiyomi.extension.ko.ntktoki.png"
+        },
+        "extensionLib": "1.4",
+        "versionCode": "18",
+        "versionName": "1.4.18",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "2301875025835268751",
+            "name": "Toki Manga",
+            "language": "ko",
+            "homeUrl": "https://toki31.com"
+          },
+          {
+            "id": "7112614124391598190",
+            "name": "Toki Webtoon",
+            "language": "ko",
+            "homeUrl": "https://toki31.com"
           }
         ]
       }
