@@ -5,6 +5,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -33,6 +34,7 @@ import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.select.Elements
@@ -260,7 +262,7 @@ abstract class NTKBase(
         val urls: List<String>,
     )
 
-    private val imageDownloadSemaphore = Semaphore(1, true)
+    private val webViewImageSemaphore = Semaphore(2, true)
 
     private fun ByteArray.detectImageMediaType(): String? = when {
         size >= 3 &&
@@ -284,6 +286,77 @@ abstract class NTKBase(
         else -> null
     }
 
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun fetchImageWithWebView(imageUrl: String, userAgent: String?): ByteArray? {
+        val parsedUrl = imageUrl.toHttpUrlOrNull() ?: return null
+        if (!webViewImageSemaphore.tryAcquire(WEBVIEW_IMAGE_SLOT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) return null
+
+        try {
+            val latch = CountDownLatch(1)
+            val handler = Handler(Looper.getMainLooper())
+            var imageBytes: ByteArray? = null
+            var webView: WebView? = null
+
+            handler.post {
+                val view = WebView(application)
+                webView = view
+                view.settings.javaScriptEnabled = true
+                view.settings.domStorageEnabled = true
+                userAgent?.takeIf(String::isNotBlank)?.let { view.settings.userAgentString = it }
+                CookieManager.getInstance().setAcceptCookie(true)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
+                view.addJavascriptInterface(
+                    object {
+                        @JavascriptInterface
+                        fun success(encoded: String) {
+                            imageBytes = runCatching { Base64.decode(encoded, Base64.DEFAULT) }.getOrNull()
+                            latch.countDown()
+                        }
+
+                        @JavascriptInterface
+                        fun failure() {
+                            latch.countDown()
+                        }
+                    },
+                    WEBVIEW_IMAGE_BRIDGE,
+                )
+
+                val quotedUrl = JSONObject.quote(imageUrl)
+                val html = """
+                    <!doctype html><meta charset="utf-8"><script>
+                    (async function() {
+                      try {
+                        const response = await fetch($quotedUrl, {cache: 'no-store', credentials: 'include'});
+                        if (!response.ok) throw new Error('HTTP ' + response.status);
+                        const bytes = new Uint8Array(await response.arrayBuffer());
+                        let binary = '';
+                        const chunk = 32768;
+                        for (let offset = 0; offset < bytes.length; offset += chunk) {
+                          binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunk));
+                        }
+                        $WEBVIEW_IMAGE_BRIDGE.success(btoa(binary));
+                      } catch (error) {
+                        $WEBVIEW_IMAGE_BRIDGE.failure();
+                      }
+                    })();
+                    </script>
+                """.trimIndent()
+                val origin = "${parsedUrl.scheme}://${parsedUrl.host}:${parsedUrl.port}/"
+                view.loadDataWithBaseURL(origin, html, "text/html", "UTF-8", null)
+            }
+
+            latch.await(WEBVIEW_IMAGE_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            handler.post {
+                webView?.stopLoading()
+                webView?.removeJavascriptInterface(WEBVIEW_IMAGE_BRIDGE)
+                webView?.destroy()
+            }
+            return imageBytes?.takeIf(ByteArray::isNotEmpty)
+        } finally {
+            webViewImageSemaphore.release()
+        }
+    }
+
     private val imageRetryInterceptor = Interceptor { chain ->
         val request = chain.request()
         val candidates = request.tag(ImageCandidates::class.java)?.urls
@@ -293,58 +366,54 @@ abstract class NTKBase(
             .orEmpty()
 
         if (candidates.isEmpty()) return@Interceptor chain.proceed(request)
-        if (!imageDownloadSemaphore.tryAcquire(IMAGE_SLOT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            throw IOException("Timed out waiting for an image download slot")
-        }
 
-        try {
-            val retryPlan = buildList {
-                add(candidates.first())
-                add(candidates.first())
-                addAll(candidates.drop(1))
-                add(candidates.first())
-            }
-            var lastFailure: IOException? = null
-            var lastStatusCode: Int? = null
-
-            for ((attempt, imageUrl) in retryPlan.withIndex()) {
-                if (attempt > 0) {
-                    Thread.sleep(IMAGE_RETRY_DELAY_MS * attempt.coerceAtMost(3))
+        var lastFailure: IOException? = null
+        var lastStatusCode: Int? = null
+        for (imageUrl in candidates) {
+            var response: Response? = null
+            try {
+                response = chain.proceed(request.newBuilder().url(imageUrl).build())
+                if (!response.isSuccessful) {
+                    lastStatusCode = response.code
+                    response.close()
+                    continue
                 }
 
-                var response: Response? = null
-                try {
-                    response = chain.proceed(request.newBuilder().url(imageUrl).build())
-                    if (!response.isSuccessful) {
-                        lastStatusCode = response.code
-                        response.close()
-                        continue
-                    }
-
-                    val bytes = response.body.bytes()
-                    val mediaType = bytes.detectImageMediaType()?.toMediaType()
-                    if (mediaType == null) {
-                        response.close()
-                        lastFailure = IOException("Invalid image response from ${request.url.host}")
-                        continue
-                    }
-
-                    return@Interceptor response.newBuilder()
-                        .header("Content-Type", mediaType.toString())
-                        .body(bytes.toResponseBody(mediaType))
-                        .build()
-                } catch (error: IOException) {
-                    response?.close()
-                    if (chain.call().isCanceled()) throw error
-                    lastFailure = error
+                val bytes = response.body.bytes()
+                val mediaType = bytes.detectImageMediaType()?.toMediaType()
+                if (mediaType == null) {
+                    response.close()
+                    lastFailure = IOException("Invalid image response from ${request.url.host}")
+                    continue
                 }
-            }
 
-            val detail = lastFailure?.message ?: "HTTP ${lastStatusCode ?: "unknown"}"
-            throw IOException("Rabbit image failed after ${retryPlan.size} attempts: $detail", lastFailure)
-        } finally {
-            imageDownloadSemaphore.release()
+                return@Interceptor response.newBuilder()
+                    .header("Content-Type", mediaType.toString())
+                    .body(bytes.toResponseBody(mediaType))
+                    .build()
+            } catch (error: IOException) {
+                response?.close()
+                if (chain.call().isCanceled()) throw error
+                lastFailure = error
+            }
         }
+
+        for (imageUrl in candidates.take(MAX_WEBVIEW_IMAGE_CANDIDATES)) {
+            val bytes = fetchImageWithWebView(imageUrl, request.header("User-Agent")) ?: continue
+            val mediaType = bytes.detectImageMediaType()?.toMediaType() ?: continue
+            val fallbackRequest = request.newBuilder().url(imageUrl).build()
+            return@Interceptor Response.Builder()
+                .request(fallbackRequest)
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .header("Content-Type", mediaType.toString())
+                .body(bytes.toResponseBody(mediaType))
+                .build()
+        }
+
+        val detail = lastFailure?.message ?: "HTTP ${lastStatusCode ?: "unknown"}"
+        throw IOException("Rabbit WebView fallback failed after direct request: $detail", lastFailure)
     }
 
     override val client: OkHttpClient by lazy {
@@ -354,8 +423,6 @@ abstract class NTKBase(
             .addInterceptor(imageRetryInterceptor)
             .addInterceptor(imageRefererInterceptor)
             .addInterceptor(webViewInterceptor)
-            .protocols(listOf(Protocol.HTTP_1_1))
-            .retryOnConnectionFailure(true)
             .build()
     }
 
@@ -679,8 +746,10 @@ abstract class NTKBase(
         private const val PREF_DOMAIN_DEFAULT = "9"
         private const val IMAGE_METADATA_SEPARATOR = "\n"
         private const val MAX_IMAGE_CANDIDATES = 4
-        private const val IMAGE_RETRY_DELAY_MS = 1_000L
-        private const val IMAGE_SLOT_TIMEOUT_SECONDS = 30L
+        private const val MAX_WEBVIEW_IMAGE_CANDIDATES = 2
+        private const val WEBVIEW_IMAGE_SLOT_TIMEOUT_SECONDS = 30L
+        private const val WEBVIEW_IMAGE_FETCH_TIMEOUT_SECONDS = 30L
+        private const val WEBVIEW_IMAGE_BRIDGE = "RabbitImageBridge"
         private val SITE_HOST_REGEX = Regex("""sbxh(\d+)\.com""")
         private val KNOWN_RABBIT_HOST_REGEX = Regex("""(?:newtoki\d+\.org|toki\d+\.com|sbxh\d+\.com)""")
         private val CHAPTER_PAGE_REGEX = Regex("""[?&](?:page|epage)=\d+""")

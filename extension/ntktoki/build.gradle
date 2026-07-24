@@ -1,7 +1,7 @@
 ext {
     extName = 'Toki Blue Rabbit'
     extClass = '.NTKFactory'
-    extVersionCode = 22
+    extVersionCode = 23
     isNsfw = true
 }
 
