@@ -319,7 +319,7 @@ abstract class NTKBase(
                         @JavascriptInterface
                         fun success(encoded: String) {
                             imageBytes = runCatching { Base64.decode(encoded, Base64.DEFAULT) }.getOrNull()
-                            if (imageBytes.isNullOrEmpty()) {
+                            if (imageBytes?.isEmpty() != false) {
                                 failureReason = "WebView returned an empty image"
                             }
                             latch.countDown()
