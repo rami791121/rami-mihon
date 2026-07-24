@@ -262,7 +262,12 @@ abstract class NTKBase(
         val urls: List<String>,
     )
 
-    private val webViewImageSemaphore = Semaphore(2, true)
+    private val webViewImageSemaphore = Semaphore(MAX_CONCURRENT_WEBVIEW_IMAGES, true)
+
+    private data class WebViewImageResult(
+        val bytes: ByteArray? = null,
+        val error: String? = null,
+    )
 
     private fun ByteArray.detectImageMediaType(): String? = when {
         size >= 3 &&
@@ -287,14 +292,18 @@ abstract class NTKBase(
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun fetchImageWithWebView(imageUrl: String, userAgent: String?): ByteArray? {
-        val parsedUrl = imageUrl.toHttpUrlOrNull() ?: return null
-        if (!webViewImageSemaphore.tryAcquire(WEBVIEW_IMAGE_SLOT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) return null
+    private fun fetchImageWithWebView(imageUrl: String, userAgent: String?): WebViewImageResult {
+        val parsedUrl = imageUrl.toHttpUrlOrNull()
+            ?: return WebViewImageResult(error = "Invalid image URL")
+        if (!webViewImageSemaphore.tryAcquire(WEBVIEW_IMAGE_SLOT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            return WebViewImageResult(error = "Timed out waiting for a WebView image slot")
+        }
 
         try {
             val latch = CountDownLatch(1)
             val handler = Handler(Looper.getMainLooper())
             var imageBytes: ByteArray? = null
+            var failureReason: String? = null
             var webView: WebView? = null
 
             handler.post {
@@ -310,11 +319,15 @@ abstract class NTKBase(
                         @JavascriptInterface
                         fun success(encoded: String) {
                             imageBytes = runCatching { Base64.decode(encoded, Base64.DEFAULT) }.getOrNull()
+                            if (imageBytes.isNullOrEmpty()) {
+                                failureReason = "WebView returned an empty image"
+                            }
                             latch.countDown()
                         }
 
                         @JavascriptInterface
-                        fun failure() {
+                        fun failure(message: String) {
+                            failureReason = message.take(160).ifBlank { "WebView fetch failed" }
                             latch.countDown()
                         }
                     },
@@ -325,19 +338,37 @@ abstract class NTKBase(
                 val html = """
                     <!doctype html><meta charset="utf-8"><script>
                     (async function() {
-                      try {
-                        const response = await fetch($quotedUrl, {cache: 'no-store', credentials: 'include'});
-                        if (!response.ok) throw new Error('HTTP ' + response.status);
-                        const bytes = new Uint8Array(await response.arrayBuffer());
-                        let binary = '';
-                        const chunk = 32768;
-                        for (let offset = 0; offset < bytes.length; offset += chunk) {
-                          binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunk));
+                      let lastError = 'WebView fetch failed';
+                      for (let attempt = 0; attempt < $MAX_WEBVIEW_FETCH_ATTEMPTS; attempt++) {
+                        const controller = new AbortController();
+                        const timer = setTimeout(function() { controller.abort(); }, $WEBVIEW_IMAGE_ATTEMPT_TIMEOUT_MS);
+                        try {
+                          const response = await fetch($quotedUrl, {
+                            cache: 'no-store',
+                            credentials: 'include',
+                            signal: controller.signal
+                          });
+                          if (!response.ok) throw new Error('HTTP ' + response.status);
+                          const bytes = new Uint8Array(await response.arrayBuffer());
+                          let binary = '';
+                          const chunk = 32768;
+                          for (let offset = 0; offset < bytes.length; offset += chunk) {
+                            binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunk));
+                          }
+                          clearTimeout(timer);
+                          $WEBVIEW_IMAGE_BRIDGE.success(btoa(binary));
+                          return;
+                        } catch (error) {
+                          clearTimeout(timer);
+                          lastError = error && error.message ? error.message : String(error);
+                          if (attempt + 1 < $MAX_WEBVIEW_FETCH_ATTEMPTS) {
+                            await new Promise(function(resolve) {
+                              setTimeout(resolve, $WEBVIEW_IMAGE_RETRY_DELAY_MS * (attempt + 1));
+                            });
+                          }
                         }
-                        $WEBVIEW_IMAGE_BRIDGE.success(btoa(binary));
-                      } catch (error) {
-                        $WEBVIEW_IMAGE_BRIDGE.failure();
                       }
+                      $WEBVIEW_IMAGE_BRIDGE.failure(lastError);
                     })();
                     </script>
                 """.trimIndent()
@@ -345,13 +376,19 @@ abstract class NTKBase(
                 view.loadDataWithBaseURL(origin, html, "text/html", "UTF-8", null)
             }
 
-            latch.await(WEBVIEW_IMAGE_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            if (!latch.await(WEBVIEW_IMAGE_FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                failureReason = "WebView image fetch timed out"
+            }
             handler.post {
                 webView?.stopLoading()
                 webView?.removeJavascriptInterface(WEBVIEW_IMAGE_BRIDGE)
                 webView?.destroy()
             }
-            return imageBytes?.takeIf(ByteArray::isNotEmpty)
+            val bytes = imageBytes?.takeIf(ByteArray::isNotEmpty)
+            return WebViewImageResult(
+                bytes = bytes,
+                error = if (bytes == null) failureReason ?: "WebView returned no image data" else null,
+            )
         } finally {
             webViewImageSemaphore.release()
         }
@@ -398,8 +435,11 @@ abstract class NTKBase(
             }
         }
 
+        var lastWebViewFailure: String? = null
         for (imageUrl in candidates.take(MAX_WEBVIEW_IMAGE_CANDIDATES)) {
-            val bytes = fetchImageWithWebView(imageUrl, request.header("User-Agent")) ?: continue
+            val webViewResult = fetchImageWithWebView(imageUrl, request.header("User-Agent"))
+            lastWebViewFailure = webViewResult.error ?: lastWebViewFailure
+            val bytes = webViewResult.bytes ?: continue
             val mediaType = bytes.detectImageMediaType()?.toMediaType() ?: continue
             val fallbackRequest = request.newBuilder().url(imageUrl).build()
             return@Interceptor Response.Builder()
@@ -412,8 +452,9 @@ abstract class NTKBase(
                 .build()
         }
 
-        val detail = lastFailure?.message ?: "HTTP ${lastStatusCode ?: "unknown"}"
-        throw IOException("Rabbit WebView fallback failed after direct request: $detail", lastFailure)
+        val directDetail = lastFailure?.message ?: "HTTP ${lastStatusCode ?: "unknown"}"
+        val webViewDetail = lastWebViewFailure ?: "No valid image returned"
+        throw IOException("Rabbit WebView failed: $webViewDetail; direct: $directDetail", lastFailure)
     }
 
     override val client: OkHttpClient by lazy {
@@ -746,9 +787,13 @@ abstract class NTKBase(
         private const val PREF_DOMAIN_DEFAULT = "1"
         private const val IMAGE_METADATA_SEPARATOR = "\n"
         private const val MAX_IMAGE_CANDIDATES = 4
-        private const val MAX_WEBVIEW_IMAGE_CANDIDATES = 2
+        private const val MAX_WEBVIEW_IMAGE_CANDIDATES = 4
+        private const val MAX_CONCURRENT_WEBVIEW_IMAGES = 4
+        private const val MAX_WEBVIEW_FETCH_ATTEMPTS = 3
+        private const val WEBVIEW_IMAGE_ATTEMPT_TIMEOUT_MS = 9_000L
+        private const val WEBVIEW_IMAGE_RETRY_DELAY_MS = 350L
         private const val WEBVIEW_IMAGE_SLOT_TIMEOUT_SECONDS = 30L
-        private const val WEBVIEW_IMAGE_FETCH_TIMEOUT_SECONDS = 30L
+        private const val WEBVIEW_IMAGE_FETCH_TIMEOUT_SECONDS = 32L
         private const val WEBVIEW_IMAGE_BRIDGE = "RabbitImageBridge"
         private val SITE_HOST_REGEX = Regex("""newtoki(\d+)\.org""")
         private val KNOWN_RABBIT_HOST_REGEX = Regex("""(?:newtoki\d+\.org|toki\d+\.com|sbxh\d+\.com)""")

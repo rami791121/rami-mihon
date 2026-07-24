@@ -1,7 +1,7 @@
 ext {
     extName = 'Newtoki White Rabbit'
     extClass = '.NTKFactory'
-    extVersionCode = 18
+    extVersionCode = 19
     isNsfw = true
 }
 
