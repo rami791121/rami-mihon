@@ -298,7 +298,7 @@ abstract class NTKBase(
             var webView: WebView? = null
 
             handler.post {
-                val view = WebView(application)
+                val view = WebView(Injekt.get<Application>())
                 webView = view
                 view.settings.javaScriptEnabled = true
                 view.settings.domStorageEnabled = true
